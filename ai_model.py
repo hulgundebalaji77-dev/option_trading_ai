@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from xgboost import XGBClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 import joblib
 import os
@@ -8,11 +8,11 @@ import os
 class OptionAIEngine:
     def _init_(self, model_path="nifty_ai_model.pkl"):
         self.model_path = model_path
-        self.model = XGBClassifier(
+        # Scikit-learn चा मजबूत आणि सुपरफास्ट Random Forest क्लासिफायर
+        self.model = RandomForestClassifier(
             n_estimators=100,
-            learning_rate=0.03,
-            max_depth=4,
-            eval_metric="mlogloss",
+            max_depth=5,
+            min_samples_split=5,
             random_state=42
         )
 
@@ -24,45 +24,50 @@ class OptionAIEngine:
         return df.dropna()
 
     def train_and_save(self, X: pd.DataFrame, y: pd.Series):
-        # Index alignment आणि स्वच्छ float डेटा तयार करणे
+        # इंडेक्स जुळवणे आणि सुरक्षित डेटा तयार करणे
         common_idx = X.index.intersection(y.index)
-        X_clean = X.loc[common_idx].astype(np.float32).values
-        y_clean = y.loc[common_idx].astype(np.int64).values
+        X_clean = X.loc[common_idx].fillna(0).values
+        y_clean = y.loc[common_idx].values.astype(int)
 
         if len(X_clean) == 0:
-            print("ट्रेनिंगसाठी डेटा उपलब्ध नाही!")
+            print("ट्रेनिंगसाठी डेटा सापडला नाही.")
             return
 
-        # Train-Test Split
+        # Train Split
         X_train, X_test, y_train, y_test = train_test_split(
             X_clean, y_clean, test_size=0.2, shuffle=False
         )
 
-        # Fit मॉडेल
+        # मॉडेल फिट करणे
         self.model.fit(X_train, y_train)
-        
+
         # सेव्ह करणे
         joblib.dump(self.model, self.model_path)
-        print(f"✅ AI मॉडेल यशस्वीरित्या सेव्ह झाले: {self.model_path}")
+        print(f"✅ AI मॉडेल यशस्वीरित्या ट्रेन आणि सेव्ह झाले: {self.model_path}")
 
     def load_model(self):
         if os.path.exists(self.model_path):
-            self.model = joblib.load(self.model_path)
-            return True
+            try:
+                self.model = joblib.load(self.model_path)
+                return True
+            except Exception:
+                return False
         return False
 
     def predict(self, feature_row: pd.DataFrame):
-        # NumPy ॲरेमध्ये रूपांतर
         if isinstance(feature_row, pd.DataFrame):
-            x_in = feature_row.astype(np.float32).values
+            x_in = feature_row.fillna(0).values
         else:
-            x_in = np.array(feature_row, dtype=np.float32)
+            x_in = np.array(feature_row).reshape(1, -1)
 
         pred = int(self.model.predict(x_in)[-1])
         probs = self.model.predict_proba(x_in)[-1]
-        
+
         action_map = {0: "HOLD", 1: "BUY_CE", 2: "BUY_PE"}
         action = action_map.get(pred, "HOLD")
-        confidence = float(probs[pred]) if pred < len(probs) else 0.0
+        
+        # सुरक्षित Probability मिळवणे
+        classes = list(self.model.classes_)
+        confidence = float(probs[classes.index(pred)]) if pred in classes else 0.0
 
         return action, confidence
