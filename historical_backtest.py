@@ -181,5 +181,5 @@ def run_backtest_pipeline(csv_path="nifty_5min_data.csv"):
     else:
         print("⚠️ दिलेल्या निकषांवर (७०% Confidence) एकही ट्रेड ट्रिगर झाला नाही.")
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     run_backtest_pipeline()
