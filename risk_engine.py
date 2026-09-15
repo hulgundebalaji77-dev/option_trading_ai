@@ -1,9 +1,11 @@
 class RiskEngine:
-    def _init_(self, rr_ratio: float = 2.0):
-        self.rr = rr_ratio
+    def _init_(self, rr_ratio: float = 2.0, *args, **kwargs):
+        self.rr = float(rr_ratio)
 
     def get_trade_levels(self, price: float, atr: float, action: str) -> dict:
-        sl_points = round(max(atr * 1.5, 20.0), 1)
+        # ATR आधारित व्होलाटिलीटी स्टॉप लॉस (किमान 20 पॉईंट्स सेफ्टी)
+        atr_val = 20.0 if (atr is None or atr <= 0) else float(atr)
+        sl_points = round(max(atr_val * 1.5, 20.0), 1)
         tgt_points = round(sl_points * self.rr, 1)
 
         if action == "BUY_CE":
@@ -16,7 +18,7 @@ class RiskEngine:
             return {}
 
         return {
-            "entry": price,
+            "entry": round(price, 1),
             "sl": sl,
             "target": tgt,
             "sl_pts": sl_points,
