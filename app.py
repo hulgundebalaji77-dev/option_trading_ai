@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import datetime
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import feedparser
@@ -9,14 +8,14 @@ import requests
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import nltk
 
-# NLTK डेटा
+# NLTK Lexicon
 try:
     nltk.data.find('sentiment/vader_lexicon.zip')
 except LookupError:
     nltk.download('vader_lexicon', quiet=True)
 
-# --- १. Risk Engine ---
-class RiskEngine:
+# १. युनिक नावाचा Risk Engine (ज्यामुळे जुना कॅश क्लॅश होणार नाही)
+class DynamicRiskEngine:
     def _init_(self, rr_ratio=2.0):
         self.rr = float(rr_ratio)
 
@@ -42,7 +41,7 @@ class RiskEngine:
             "tgt_pts": tgt_points
         }
 
-# --- २. Feature Engine ---
+# २. Feature Extraction
 def extract_features(df):
     f_df = pd.DataFrame(index=df.index)
     f_df['returns'] = df['close'].pct_change()
@@ -64,17 +63,18 @@ def extract_features(df):
     f_df['atr'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1).rolling(14).mean()
     return f_df.replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
-# --- ३. 100% Robust Machine Learning (AI) Classifier ---
-class OptionAI:
+# ३. Light & Fast ML AI Engine
+class OptionAIEngineV2:
     def _init_(self):
-        # Weights for Features: returns, hl_spread, ema_ratio, rsi, atr
         self.weights = None
         self.bias = None
+        self.mean = None
+        self.std = None
 
     def train(self, df, features):
         future_diff = df['close'].shift(-3) - df['close']
         conditions = [future_diff >= 20, future_diff <= -20]
-        targets = np.select(conditions, [1, 2], default=0) # 1: CE, 2: PE, 0: HOLD
+        targets = np.select(conditions, [1, 2], default=0)
 
         clean_df = df.copy()
         clean_df['target'] = targets
@@ -83,30 +83,23 @@ class OptionAI:
         X = features.loc[clean_df.index].values.astype(np.float64)
         y = clean_df['target'].values.astype(np.int64)
 
-        # Multi-class Logistic Weight Estimation (Pure NumPy Optimization)
-        # 3 Classes: 0 (HOLD), 1 (BUY_CE), 2 (BUY_PE)
         n_features = X.shape[1]
         self.weights = np.zeros((3, n_features))
         self.bias = np.zeros(3)
 
-        # Feature normalization
         self.mean = np.mean(X, axis=0)
         self.std = np.std(X, axis=0) + 1e-7
         X_norm = (X - self.mean) / self.std
 
-        # Fast Vectorized Training
         lr = 0.05
-        for _ in range(80):
+        for _ in range(60):
             scores = np.dot(X_norm, self.weights.T) + self.bias
-            # Softmax
             exp_scores = np.exp(scores - np.max(scores, axis=1, keepdims=True))
             probs = exp_scores / np.sum(exp_scores, axis=1, keepdims=True)
 
-            # One-hot
             y_onehot = np.zeros_like(probs)
             np.put_along_axis(y_onehot, y[:, None], 1, axis=1)
 
-            # Gradient
             grad = probs - y_onehot
             dW = np.dot(grad.T, X_norm) / len(X)
             db = np.sum(grad, axis=0) / len(X)
@@ -129,7 +122,7 @@ class OptionAI:
         except Exception:
             return "HOLD", 0.0
 
-# --- ४. Excel रिपोर्ट जनरेटर ---
+# ४. Excel रिपोर्ट तयार करणे
 def create_excel_report(trades_df, capital, filename="AI_Option_Report.xlsx"):
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -153,7 +146,7 @@ def create_excel_report(trades_df, capital, filename="AI_Option_Report.xlsx"):
     wb.save(filename)
     return filename
 
-# --- ५. Streamlit Dashboard UI ---
+# --- UI Layout ---
 st.set_page_config(page_title="AI Option Trading", page_icon="📈", layout="wide")
 st.title("🤖 Nifty 50 AI Option Trading & Backtest System")
 
@@ -168,7 +161,7 @@ tab1, tab2, tab3 = st.tabs(["📊 Backtest Engine", "📰 Live News Sentiment", 
 with tab1:
     st.subheader("Historical 5-Min Strategy Backtest")
     if st.button("🚀 Run Backtest Now", type="primary"):
-        with st.spinner("डेटा प्रोसेस आणि AI मॉडेल ट्रेन होत आहे..."):
+        with st.spinner("डेटा प्रोसेस आणि AI मॉडेल रन होत आहे..."):
             np.random.seed(42)
             prices = np.cumprod(1 + np.random.normal(0.0001, 0.0025, 1200)) * 24500
             df = pd.DataFrame({
@@ -185,10 +178,11 @@ with tab1:
             train_df = df.iloc[:split_idx]
             train_feats = features.iloc[:split_idx]
 
-            ai = OptionAI()
+            ai = OptionAIEngineV2()
             ai.train(train_df, train_feats)
 
-            risk = RiskEngine(rr_ratio=rr_ratio)
+            # इथे थेट DynamicRiskEngine वापरला आहे
+            risk_mgr = DynamicRiskEngine(rr_ratio=rr_ratio)
             test_df = df.iloc[split_idx:]
             trades = []
             in_trade = False
@@ -230,7 +224,7 @@ with tab1:
                     action, conf = ai.predict(feat)
                     if action in ["BUY_CE", "BUY_PE"] and conf >= min_conf:
                         atr_v = feat['atr'].values[0]
-                        levels = risk.get_trade_levels(curr['close'], atr_v, action)
+                        levels = risk_mgr.get_trade_levels(curr['close'], atr_v, action)
                         trade_type = action
                         entry_p, sl_p, tgt_p = levels['entry'], levels['sl'], levels['target']
                         in_trade = True
