@@ -1,3 +1,4 @@
+from risk_engine import RiskEngine
 import streamlit as st
 import pandas as pd
 import numpy as np
