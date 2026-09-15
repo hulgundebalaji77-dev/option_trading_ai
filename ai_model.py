@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 import joblib
 import os
@@ -8,13 +8,7 @@ import os
 class OptionAIEngine:
     def _init_(self, model_path="nifty_ai_model.pkl"):
         self.model_path = model_path
-        # अत्यंत स्थिर आणि वेगवान ML अल्गोरिदम
-        self.model = GradientBoostingClassifier(
-            n_estimators=60,
-            learning_rate=0.05,
-            max_depth=3,
-            random_state=42
-        )
+        self.model = None
 
     def prepare_labels(self, df: pd.DataFrame, target_pts=25):
         # 1: CE, 2: PE, 0: HOLD
@@ -25,30 +19,39 @@ class OptionAIEngine:
         return df
 
     def train_and_save(self, X: pd.DataFrame, y: pd.Series):
-        # इंडेक्स जुळवून स्वच्छ ॲरे तयार करणे
+        # स्वच्छ आणि व्हॅलिड डेटा तयार करणे
         common_idx = X.index.intersection(y.index)
         X_df = X.loc[common_idx].copy().replace([np.inf, -np.inf], np.nan).fillna(0.0)
         y_s = y.loc[common_idx].copy()
 
-        X_mat = np.asarray(X_df.values, dtype=np.float64)
-        y_arr = np.asarray(y_s.values, dtype=np.int32)
+        X_data = np.asarray(X_df.values, dtype=np.float64)
+        y_data = np.asarray(y_s.values, dtype=np.int64)
 
-        if len(X_mat) < 10:
+        if len(X_data) < 10:
             return
 
         # Train/Test Split
         X_train, X_test, y_train, y_test = train_test_split(
-            X_mat, y_arr, test_size=0.2, shuffle=False
+            X_data, y_data, test_size=0.2, shuffle=False
         )
 
-        # मॉडेल फिटिंग
-        self.model.fit(X_train, y_train)
+        # फ्रेश मॉडेल इन्स्टन्स तयार करून फिट करणे
+        clf = RandomForestClassifier(
+            n_estimators=100,
+            max_depth=5,
+            min_samples_split=5,
+            random_state=42
+        )
+        
+        clf.fit(X_train, y_train)
+        self.model = clf
 
         # सेव्ह करणे
         try:
-            joblib.dump(self.model, self.model_path)
-        except Exception:
-            pass
+            joblib.dump(clf, self.model_path)
+            print(f"✅ AI मॉडेल यशस्वीरित्या सेव्ह झाले: {self.model_path}")
+        except Exception as e:
+            print(f"सेव्ह एरर: {e}")
 
     def load_model(self):
         if os.path.exists(self.model_path):
@@ -61,6 +64,10 @@ class OptionAIEngine:
 
     def predict(self, feature_row: pd.DataFrame):
         try:
+            if self.model is None:
+                if not self.load_model():
+                    return "HOLD", 0.0
+
             feat_clean = feature_row.replace([np.inf, -np.inf], np.nan).fillna(0.0)
             x_in = np.asarray(feat_clean.values, dtype=np.float64)
 
