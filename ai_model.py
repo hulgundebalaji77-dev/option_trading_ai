@@ -8,7 +8,6 @@ import os
 class OptionAIEngine:
     def _init_(self, model_path="nifty_ai_model.pkl"):
         self.model_path = model_path
-        # Scikit-learn चा मजबूत आणि सुपरफास्ट Random Forest क्लासिफायर
         self.model = RandomForestClassifier(
             n_estimators=100,
             max_depth=5,
@@ -21,29 +20,46 @@ class OptionAIEngine:
         future_diff = df['close'].shift(-3) - df['close']
         conditions = [future_diff >= target_pts, future_diff <= -target_pts]
         df['target'] = np.select(conditions, [1, 2], default=0)
-        return df.dropna()
+        # NaN किंवा इन्फिनिटी काढून टाकणे
+        df = df.replace([np.inf, -np.inf], np.nan).dropna()
+        return df
 
     def train_and_save(self, X: pd.DataFrame, y: pd.Series):
-        # इंडेक्स जुळवणे आणि सुरक्षित डेटा तयार करणे
+        # इंडेक्स जुळवणे
         common_idx = X.index.intersection(y.index)
-        X_clean = X.loc[common_idx].fillna(0).values
-        y_clean = y.loc[common_idx].values.astype(int)
+        X_df = X.loc[common_idx].copy()
+        y_s = y.loc[common_idx].copy()
 
-        if len(X_clean) == 0:
-            print("ट्रेनिंगसाठी डेटा सापडला नाही.")
+        # सर्व NaN आणि इन्फिनिटी व्हॅल्यूज शून्य (0.0) करणे
+        X_df = X_df.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        X_clean = np.nan_to_num(X_df.values.astype(np.float64))
+        y_clean = y_s.values.astype(int)
+
+        if len(X_clean) < 10:
+            print("ट्रेनिंगसाठी पुरेसा डेटा नाही.")
             return
 
-        # Train Split
+        # Train-Test Split (Shuffle False for time-series)
         X_train, X_test, y_train, y_test = train_test_split(
             X_clean, y_clean, test_size=0.2, shuffle=False
         )
 
-        # मॉडेल फिट करणे
+        # जर y_train मध्ये फक्त एकच क्लास असेल तर किमान डमी व्हॅल्यूज ॲड करून सेफ्टी देणे
+        unique_classes = np.unique(y_train)
+        if len(unique_classes) < 2:
+            # किमान २ क्लास (0 आणि 1) असल्याची खात्री
+            y_train[0] = 0
+            y_train[1] = 1
+
+        # फिट करणे
         self.model.fit(X_train, y_train)
 
-        # सेव्ह करणे
-        joblib.dump(self.model, self.model_path)
-        print(f"✅ AI मॉडेल यशस्वीरित्या ट्रेन आणि सेव्ह झाले: {self.model_path}")
+        # सुरक्षित सेव्ह
+        try:
+            joblib.dump(self.model, self.model_path)
+            print(f"✅ AI मॉडेल यशस्वीरित्या सेव्ह झाले: {self.model_path}")
+        except Exception as e:
+            print(f"मॉडेल सेव्ह एरर: {e}")
 
     def load_model(self):
         if os.path.exists(self.model_path):
@@ -55,19 +71,18 @@ class OptionAIEngine:
         return False
 
     def predict(self, feature_row: pd.DataFrame):
-        if isinstance(feature_row, pd.DataFrame):
-            x_in = feature_row.fillna(0).values
-        else:
-            x_in = np.array(feature_row).reshape(1, -1)
+        try:
+            feat_clean = feature_row.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+            x_in = np.nan_to_num(feat_clean.values.astype(np.float64))
+            
+            pred = int(self.model.predict(x_in)[-1])
+            probs = self.model.predict_proba(x_in)[-1]
 
-        pred = int(self.model.predict(x_in)[-1])
-        probs = self.model.predict_proba(x_in)[-1]
-
-        action_map = {0: "HOLD", 1: "BUY_CE", 2: "BUY_PE"}
-        action = action_map.get(pred, "HOLD")
-        
-        # सुरक्षित Probability मिळवणे
-        classes = list(self.model.classes_)
-        confidence = float(probs[classes.index(pred)]) if pred in classes else 0.0
-
-        return action, confidence
+            action_map = {0: "HOLD", 1: "BUY_CE", 2: "BUY_PE"}
+            action = action_map.get(pred, "HOLD")
+            
+            classes = list(self.model.classes_)
+            confidence = float(probs[classes.index(pred)]) if pred in classes else 0.0
+            return action, confidence
+        except Exception:
+            return "HOLD", 0.0
