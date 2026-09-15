@@ -4,27 +4,24 @@ import numpy as np
 import datetime
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
 import feedparser
 import requests
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import nltk
 
-# NLTK डेटा डाऊनलोड
+# NLTK डेटा
 try:
     nltk.data.find('sentiment/vader_lexicon.zip')
 except LookupError:
     nltk.download('vader_lexicon', quiet=True)
 
-# --- १. इनलाइन Risk Engine ---
+# --- १. Risk Engine ---
 class RiskEngine:
-    def _init_(self, rr_ratio=2.0, *args, **kwargs):
+    def _init_(self, rr_ratio=2.0):
         self.rr = float(rr_ratio)
 
     def get_trade_levels(self, price, atr, action):
-        atr_val = 20.0 if (atr is None or atr <= 0 or np.isnan(atr)) else float(atr)
+        atr_val = 25.0 if (atr is None or atr <= 0 or np.isnan(atr)) else float(atr)
         sl_points = round(max(atr_val * 1.5, 20.0), 1)
         tgt_points = round(sl_points * self.rr, 1)
 
@@ -45,71 +42,101 @@ class RiskEngine:
             "tgt_pts": tgt_points
         }
 
-# --- २. इनलाइन Feature Engine ---
+# --- २. Feature Engine ---
 def extract_features(df):
-    features = pd.DataFrame(index=df.index)
-    features['returns'] = df['close'].pct_change()
-    features['hl_spread'] = (df['high'] - df['low']) / df['close']
-    
+    f_df = pd.DataFrame(index=df.index)
+    f_df['returns'] = df['close'].pct_change()
+    f_df['hl_spread'] = (df['high'] - df['low']) / df['close']
+
     ema9 = df['close'].ewm(span=9).mean()
     ema21 = df['close'].ewm(span=21).mean()
-    features['ema_ratio'] = (ema9 / ema21) - 1.0
+    f_df['ema_ratio'] = (ema9 / ema21) - 1.0
 
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / (loss + 1e-9)
-    features['rsi'] = 100 - (100 / (1 + rs))
+    f_df['rsi'] = 100 - (100 / (1 + rs))
 
     tr1 = df['high'] - df['low']
     tr2 = (df['high'] - df['close'].shift()).abs()
     tr3 = (df['low'] - df['close'].shift()).abs()
-    features['atr'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1).rolling(14).mean()
-    return features.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    f_df['atr'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1).rolling(14).mean()
+    return f_df.replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
-# --- ३. इनलाइन AI मॉडेल ---
+# --- ३. 100% Robust Machine Learning (AI) Classifier ---
 class OptionAI:
     def _init_(self):
-        self.clf = RandomForestClassifier(n_estimators=80, max_depth=4, random_state=42)
+        # Weights for Features: returns, hl_spread, ema_ratio, rsi, atr
+        self.weights = None
+        self.bias = None
 
     def train(self, df, features):
         future_diff = df['close'].shift(-3) - df['close']
-        conditions = [future_diff >= 25, future_diff <= -25]
-        targets = np.select(conditions, [1, 2], default=0)
+        conditions = [future_diff >= 20, future_diff <= -20]
+        targets = np.select(conditions, [1, 2], default=0) # 1: CE, 2: PE, 0: HOLD
 
         clean_df = df.copy()
         clean_df['target'] = targets
         clean_df = clean_df.dropna()
 
-        X = features.loc[clean_df.index].values
-        y = clean_df['target'].values.astype(int)
+        X = features.loc[clean_df.index].values.astype(np.float64)
+        y = clean_df['target'].values.astype(np.int64)
 
-        if len(np.unique(y)) < 2:
-            y[0] = 1
+        # Multi-class Logistic Weight Estimation (Pure NumPy Optimization)
+        # 3 Classes: 0 (HOLD), 1 (BUY_CE), 2 (BUY_PE)
+        n_features = X.shape[1]
+        self.weights = np.zeros((3, n_features))
+        self.bias = np.zeros(3)
 
-        self.clf.fit(X, y)
+        # Feature normalization
+        self.mean = np.mean(X, axis=0)
+        self.std = np.std(X, axis=0) + 1e-7
+        X_norm = (X - self.mean) / self.std
+
+        # Fast Vectorized Training
+        lr = 0.05
+        for _ in range(80):
+            scores = np.dot(X_norm, self.weights.T) + self.bias
+            # Softmax
+            exp_scores = np.exp(scores - np.max(scores, axis=1, keepdims=True))
+            probs = exp_scores / np.sum(exp_scores, axis=1, keepdims=True)
+
+            # One-hot
+            y_onehot = np.zeros_like(probs)
+            np.put_along_axis(y_onehot, y[:, None], 1, axis=1)
+
+            # Gradient
+            grad = probs - y_onehot
+            dW = np.dot(grad.T, X_norm) / len(X)
+            db = np.sum(grad, axis=0) / len(X)
+
+            self.weights -= lr * dW
+            self.bias -= lr * db
 
     def predict(self, feature_row):
         try:
-            x_in = np.asarray(feature_row.values, dtype=np.float64)
-            pred = int(self.clf.predict(x_in)[-1])
-            probs = self.clf.predict_proba(x_in)[-1]
+            x_raw = np.asarray(feature_row.values, dtype=np.float64).reshape(1, -1)
+            x_norm = (x_raw - self.mean) / self.std
+            scores = np.dot(x_norm, self.weights.T) + self.bias
+            exp_scores = np.exp(scores - np.max(scores, axis=1, keepdims=True))
+            probs = (exp_scores / np.sum(exp_scores, axis=1, keepdims=True))[0]
+
+            pred_class = int(np.argmax(probs))
+            confidence = float(probs[pred_class])
             action_map = {0: "HOLD", 1: "BUY_CE", 2: "BUY_PE"}
-            classes = list(self.clf.classes_)
-            conf = float(probs[classes.index(pred)]) if pred in classes else 0.0
-            return action_map.get(pred, "HOLD"), conf
+            return action_map.get(pred_class, "HOLD"), confidence
         except Exception:
             return "HOLD", 0.0
 
-# --- ४. इनलाइन Excel रिपोर्ट जनरेटर ---
+# --- ४. Excel रिपोर्ट जनरेटर ---
 def create_excel_report(trades_df, capital, filename="AI_Option_Report.xlsx"):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Trade Summary"
-    
     fill_hdr = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
     font_hdr = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-    
+
     headers = list(trades_df.columns)
     ws.append(headers)
     for c_idx in range(1, len(headers) + 1):
@@ -126,7 +153,7 @@ def create_excel_report(trades_df, capital, filename="AI_Option_Report.xlsx"):
     wb.save(filename)
     return filename
 
-# --- ५. Streamlit UI Layout ---
+# --- ५. Streamlit Dashboard UI ---
 st.set_page_config(page_title="AI Option Trading", page_icon="📈", layout="wide")
 st.title("🤖 Nifty 50 AI Option Trading & Backtest System")
 
@@ -134,7 +161,7 @@ st.sidebar.header("⚙️ Strategy Parameters")
 capital = st.sidebar.number_input("Starting Capital (₹)", value=100000, step=10000)
 lot_size = st.sidebar.number_input("Lot Size (Nifty)", value=50, step=25)
 rr_ratio = st.sidebar.slider("Risk-Reward Ratio", 1.0, 3.0, 2.0, 0.5)
-min_conf = st.sidebar.slider("Minimum AI Confidence", 0.50, 0.90, 0.70, 0.05)
+min_conf = st.sidebar.slider("Minimum AI Confidence", 0.40, 0.90, 0.55, 0.05)
 
 tab1, tab2, tab3 = st.tabs(["📊 Backtest Engine", "📰 Live News Sentiment", "📁 Export Reports"])
 
@@ -143,27 +170,24 @@ with tab1:
     if st.button("🚀 Run Backtest Now", type="primary"):
         with st.spinner("डेटा प्रोसेस आणि AI मॉडेल ट्रेन होत आहे..."):
             np.random.seed(42)
-            prices = np.cumprod(1 + np.random.normal(0.0001, 0.002, 1500)) * 24500
+            prices = np.cumprod(1 + np.random.normal(0.0001, 0.0025, 1200)) * 24500
             df = pd.DataFrame({
-                "datetime": pd.date_range("2026-06-01 09:15", periods=1500, freq="5min"),
+                "datetime": pd.date_range("2026-06-01 09:15", periods=1200, freq="5min"),
                 "open": prices,
                 "high": prices * 1.002,
                 "low": prices * 0.998,
                 "close": prices,
-                "volume": np.random.randint(1000, 15000, 1500)
+                "volume": np.random.randint(1000, 15000, 1200)
             })
 
             features = extract_features(df)
-            
-            # AI मॉडेल ट्रेन
-            split_idx = int(len(df) * 0.75)
+            split_idx = int(len(df) * 0.70)
             train_df = df.iloc[:split_idx]
             train_feats = features.iloc[:split_idx]
-            
+
             ai = OptionAI()
             ai.train(train_df, train_feats)
 
-            # बॅकटेस्ट चालवणे
             risk = RiskEngine(rr_ratio=rr_ratio)
             test_df = df.iloc[split_idx:]
             trades = []
@@ -242,7 +266,7 @@ with tab2:
                 sia = SentimentIntensityAnalyzer()
                 scores = [sia.polarity_scores(e.title)['compound'] for e in feed.entries[:8] if hasattr(e, 'title')]
                 avg = sum(scores) / len(scores) if scores else 0.0
-                
+
                 sentiment = "BULLISH" if avg >= 0.10 else ("BEARISH" if avg <= -0.10 else "NEUTRAL")
                 c1, c2 = st.columns(2)
                 c1.metric("Overall Sentiment", sentiment)
