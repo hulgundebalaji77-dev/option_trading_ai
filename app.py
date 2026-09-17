@@ -17,7 +17,7 @@ except LookupError:
 # १. युनिक नावाचा Risk Engine (ज्यामुळे जुना कॅश क्लॅश होणार नाही)
 class DynamicRiskEngine:
     def _init_(self, rr_ratio=2.0):
-        self.rr = float(rr_ratio)
+        self.rr_ratio = rr_ratio
 
     def get_trade_levels(self, price, atr, action):
         atr_val = 25.0 if (atr is None or atr <= 0 or np.isnan(atr)) else float(atr)
@@ -182,7 +182,7 @@ with tab1:
             ai.train(train_df, train_feats)
 
             # इथे थेट DynamicRiskEngine वापरला आहे
-            risk_mgr = DynamicRiskEngine(rr_ratio=rr_ratio)
+            risk_mgr = DynamicRiskEngine()
             test_df = df.iloc[split_idx:]
             trades = []
             in_trade = False
