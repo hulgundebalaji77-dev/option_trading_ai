@@ -231,6 +231,30 @@ with tab1:
 
             st.session_state['trades_df'] = pd.DataFrame(trades)
             st.success("✅ बॅकटेस्ट यशस्वीरित्या पूर्ण झाले!")
+            # रिझल्ट्स स्क्रीनवर दाखवण्यासाठी:
+    if trades:
+        import pandas as pd
+        trades_df = pd.DataFrame(trades)
+        
+        st.markdown("---")
+        st.subheader("📊 बॅकटेस्ट निकाल (Results)")
+        
+        # १. महत्त्वाचे आकडे (Metrics)
+        total_pnl = trades_df['pnl'].sum() if 'pnl' in trades_df.columns else 0
+        win_trades = len(trades_df[trades_df['pnl'] > 0]) if 'pnl' in trades_df.columns else 0
+        loss_trades = len(trades_df[trades_df['pnl'] <= 0]) if 'pnl' in trades_df.columns else 0
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("एकूण ट्रेड्स", len(trades_df))
+        c2.metric("नफा / तोटा (P&L)", f"₹{total_pnl:,.2f}")
+        c3.metric("Win / Loss", f"{win_trades} / {loss_trades}")
+        
+        # २. सर्व ट्रेड्सचा तक्ता (Table)
+        st.markdown("---")
+        st.write("📋 *घेतलेल्या ट्रेड्सची यादी:*")
+        st.dataframe(trades_df)
+    else:
+        st.warning("या कालावधीत अटी पूर्ण न झाल्यामुळे एकही ट्रेड झाला नाही.")
 
     if 'trades_df' in st.session_state and not st.session_state['trades_df'].empty:
         tdf = st.session_state['trades_df']
