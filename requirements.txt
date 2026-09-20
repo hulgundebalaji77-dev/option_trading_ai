@@ -8,3 +8,5 @@ nltk
 requests
 joblib
 schedule
+smartapi-python
+pyotp
