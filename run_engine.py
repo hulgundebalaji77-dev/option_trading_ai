@@ -6,17 +6,40 @@ from news_engine import NewsEngine
 from ai_model import OptionAIEngine
 from risk_engine import RiskEngine
 from excel_reporter import generate_excel_report
-
+from SmartApi import SmartConnect
+import pyotp
+from datetime import datetime, timedelta
 def main():
     print("🚀 AI Option Trading Pipeline सुरू होत आहे...")
     import pandas as pd
-from angel_client import get_angel_session, get_nifty_candles
-from ai_model import OptionAIEngine
+smart_api = SmartConnect(api_key=CONFIG["ANGEL_API_KEY"])
+    totp = pyotp.TOTP(CONFIG["ANGEL_TOTP_TOKEN"]).now()
+    session = smart_api.generateSession(CONFIG["ANGEL_CLIENT_CODE"], CONFIG["ANGEL_PASSWORD"], totp)
 
-# 1. Angel One कनेक्ट करा
-api = get_angel_session()
+    # २. तारीख आणि वेळ सेट करा (शेवटच्या ५ दिवसांचा डेटा)
+    to_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+    from_date = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d 09:15")
 
-# 2. कँडल डेटा मिळवा व DataFrame मध्ये रूपांतरित करा
+    # ३. Nifty 50 कँडल डेटा फेच करा
+    historic_param = {
+        "exchange": "NSE",
+        "symboltoken": "99926000",   # Nifty 50 Index Token
+        "interval": "FIVE_MINUTE",    # 5 मिनिट कँडल
+        "fromdate": from_date,
+        "todate": to_date
+    }
+    
+    candle_res = smart_api.getCandleData(historic_param)
+    
+    # ४. डेटा DataFrame मध्ये लोड करा
+    if candle_res and candle_res.get("status"):
+        cols = ["timestamp", "open", "high", "low", "close", "volume"]
+        sample_df = pd.DataFrame(candle_res["data"], columns=cols)
+        sample_df["timestamp"] = pd.to_datetime(sample_df["timestamp"])
+    else:
+        print("Angel One वरून डेटा फेच करताना एरर आला:", candle_res)
+        return
+        # 2. कँडल डेटा मिळवा व DataFrame मध्ये रूपांतरित करा
 raw_data = get_nifty_candles(api)
 if raw_data and raw_data.get('status'):
     cols = ["timestamp", "open", "high", "low", "close", "volume"]
