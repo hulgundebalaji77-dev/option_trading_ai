@@ -345,3 +345,9 @@ with tab3:
             st.download_button("📥 Download Excel P&L Report", f, file_name=fname, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else:
         st.warning("आधी बॅकटेस्ट रन करा, त्यानंतर एक्सेल डाउनलोड करता येईल.")
+df = load_angel_data()
+
+if df is not None and not df.empty:
+    st.success(f"✅ Angel One कनेक्ट झाले! एकूण {len(df)} कँडल्स मिळाल्या. (शेवटची वेळ: {df['timestamp'].iloc[-1]})")
+else:
+    st.error("❌ Angel One कनेक्ट झालेले नाही किंवा डेटा मिळाला नाही.")
