@@ -2,14 +2,13 @@ CONFIG = {
     "SYMBOL": "NIFTY",
     "LOT_SIZE": 50,
     "INITIAL_CAPITAL": 100000.0,
-    "RISK_REWARD_RATIO": 2.0,       # 1:2 Risk to Reward
-    "MIN_AI_CONFIDENCE": 0.70,      # किमान ७०% AI खात्री असेल तरच ट्रेड
+    "RISK_REWARD_RATIO": 2.0,
+    "MIN_AI_CONFIDENCE": 0.70,
     "MODEL_FILE": "nifty_ai_model.pkl",
-    "TELEGRAM_BOT_TOKEN": "YOUR_BOT_TOKEN",  # ऐच्छिक
+    "TELEGRAM_BOT_TOKEN": "YOUR_BOT_TOKEN",
     "TELEGRAM_CHAT_ID": "YOUR_CHAT_ID",
-
-    # Angel One SmartAPI क्रेडेंशियल्स:
     "ANGEL_API_KEY": "7H7EQMOW6JFK2OPXWZYGY7UCOA",
     "ANGEL_CLIENT_CODE": "B130919",
     "ANGEL_PASSWORD": "2727",
-    "ANGEL_TOTP_TOKEN": "इथे_TOTP_QR_खालील_SECRET_KEY_टाका"
+    "ANGEL_TOTP_TOKEN": "YOUR_TOTP_KEY"
+}
