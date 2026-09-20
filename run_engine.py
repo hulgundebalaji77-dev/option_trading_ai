@@ -9,7 +9,25 @@ from excel_reporter import generate_excel_report
 
 def main():
     print("🚀 AI Option Trading Pipeline सुरू होत आहे...")
+    import pandas as pd
+from angel_client import get_angel_session, get_nifty_candles
+from ai_model import OptionAIEngine
+
+# 1. Angel One कनेक्ट करा
+api = get_angel_session()
+
+# 2. कँडल डेटा मिळवा व DataFrame मध्ये रूपांतरित करा
+raw_data = get_nifty_candles(api)
+if raw_data and raw_data.get('status'):
+    cols = ["timestamp", "open", "high", "low", "close", "volume"]
+    df = pd.DataFrame(raw_data['data'], columns=cols)
     
+    # 3. AI Engine चालवा
+    ai = OptionAIEngine()
+    # df = feature_engine.calculate_indicators(df)
+    # prediction = ai.predict(df)
+    print("डेटा यशस्वीरित्या AI मॉडेलला जोडला गेला.")
+   
     # १. डमी/सॅम्पल कॅन्डल डेटा (टेस्टिंगसाठी)
     # जेव्हा लाइव्ह कराल, तेव्हा इथे ब्रोकर API वरून डेटा येईल
     np.random.seed(42)
