@@ -1,3 +1,7 @@
+from SmartApi import SmartConnect
+import pyotp
+from config import CONFIG
+from datetime import datetime, timedelta
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -7,7 +11,42 @@ import feedparser
 import requests
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import nltk
+import streamlit as st
+import pandas as pd
+from SmartApi import SmartConnect
+import pyotp
+from datetime import datetime, timedelta
+from config import CONFIG
 
+# ==========================================
+# 👉 इथे (साधारण Line 15 ते 20 च्या आसपास) हे फंक्शन पेस्ट करा:
+# ==========================================
+@st.cache_data(ttl=300)
+def load_angel_data():
+    try:
+        smart_api = SmartConnect(api_key=CONFIG["ANGEL_API_KEY"])
+        totp = pyotp.TOTP(CONFIG["ANGEL_TOTP_TOKEN"]).now()
+        smart_api.generateSession(CONFIG["ANGEL_CLIENT_CODE"], CONFIG["ANGEL_PASSWORD"], totp)
+
+        to_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+        from_date = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d 09:15")
+
+        historic_param = {
+            "exchange": "NSE",
+            "symboltoken": "99926000",
+            "interval": "FIVE_MINUTE",
+            "fromdate": from_date,
+            "todate": to_date
+        }
+        res = smart_api.getCandleData(historic_param)
+        if res and res.get("status"):
+            df = pd.DataFrame(res["data"], columns=["timestamp", "open", "high", "low", "close", "volume"])
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            return df
+        return None
+    except Exception as e:
+        st.error(f"Angel One एरर: {e}")
+        return None
 # NLTK Lexicon
 try:
     nltk.data.find('sentiment/vader_lexicon.zip')
