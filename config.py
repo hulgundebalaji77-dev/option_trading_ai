@@ -1,14 +1,8 @@
+# config.py
+
 CONFIG = {
-    "SYMBOL": "NIFTY",
-    "LOT_SIZE": 50,
-    "INITIAL_CAPITAL": 100000.0,
-    "RISK_REWARD_RATIO": 2.0,
-    "MIN_AI_CONFIDENCE": 0.70,
-    "MODEL_FILE": "nifty_ai_model.pkl",
-    "TELEGRAM_BOT_TOKEN": "YOUR_BOT_TOKEN",
-    "TELEGRAM_CHAT_ID": "YOUR_CHAT_ID",
-    "ANGEL_API_KEY": "ENvuvGju",
-    "ANGEL_CLIENT_CODE": "B130919",
-    "ANGEL_PASSWORD": "2727",
-    "ANGEL_TOTP_TOKEN": "7H7EQMOW6JFK2OPXWZYGY7UCOA"
+    "ANGEL_API_KEY": "तुमचा_API_KEY",        # SmartAPI पोर्टलवरून तयार केलेला API Key
+    "ANGEL_CLIENT_CODE": "तुमचा_CLIENT_ID",   # उदा. P123456
+    "ANGEL_PASSWORD": "तुमचा_PIN_किंवा_PASSWORD", # Angel One चा 4-अंकी Trading PIN
+    "ANGEL_TOTP_TOKEN": "तुमचा_TOTP_KEY"     # SmartAPI/Authenticator चा गुप्त 32-अंकी TOTP Secret Key
 }
