@@ -1,4 +1,69 @@
+# app.py (सुरुवातीच्या ओळी)
+
 import re
+from datetime import datetime, timedelta
+import feedparser
+import nltk
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+import numpy as np
+import openpyxl
+from openpyxl.styles import Alignment, Font, PatternFill
+import pandas as pd
+import pyotp
+import requests
+from SmartApi import SmartConnect
+import streamlit as st  # <--- हे st वापरण्याआधी असणे आवश्यक आहे
+
+from config import CONFIG
+
+# ==========================================
+# Angel One Data Fetcher (इम्पोर्ट्सच्या खाली)
+# ==========================================
+@st.cache_data(ttl=300)
+def load_angel_data():
+    try:
+        api_key = str(CONFIG.get("ANGEL_API_KEY", "")).strip()
+        client_code = str(CONFIG.get("ANGEL_CLIENT_CODE", "")).strip()
+        password = str(CONFIG.get("ANGEL_PASSWORD", "")).strip()
+        totp_raw = str(CONFIG.get("ANGEL_TOTP_TOKEN", "")).strip()
+
+        totp_token = re.sub(r'[^A-Za-z2-7]', '', totp_raw).upper()
+
+        if not all([api_key, client_code, password, totp_token]):
+            st.sidebar.error("❌ क्रेडेंशियल्स अपूर्ण आहेत किंवा चुकीचे फॉरमॅट आहे.")
+            return None
+
+        totp = pyotp.TOTP(totp_token).now()
+
+        smart_api = SmartConnect(api_key=api_key)
+        session_data = smart_api.generateSession(client_code, password, totp)
+
+        if not session_data.get("status"):
+            st.sidebar.error(f"❌ लॉगिन अयशस्वी: {session_data.get('message')}")
+            return None
+
+        to_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+        from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d 09:15")
+
+        historic_param = {
+            "exchange": "NSE",
+            "symboltoken": "99926000",
+            "interval": "FIVE_MINUTE",
+            "fromdate": from_date,
+            "todate": to_date
+        }
+        res = smart_api.getCandleData(historic_param)
+        
+        if res and res.get("status") and res.get("data"):
+            df = pd.DataFrame(res["data"], columns=["timestamp", "open", "high", "low", "close", "volume"])
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            return df
+        return None
+
+    except Exception as e:
+        st.sidebar.error(f"Angel One एरर: {e}")
+        return None
+        import re
 
 @st.cache_data(ttl=300)
 def load_angel_data():
