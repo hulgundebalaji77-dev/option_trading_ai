@@ -1,25 +1,21 @@
-from SmartApi import SmartConnect
-import pyotp
-from config import CONFIG
 from datetime import datetime, timedelta
-import streamlit as st
-import pandas as pd
+import feedparser
+import nltk
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import numpy as np
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-import feedparser
-import requests
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
-import nltk
-import streamlit as st
+from openpyxl.styles import Alignment, Font, PatternFill
 import pandas as pd
-from SmartApi import SmartConnect
 import pyotp
-from datetime import datetime, timedelta
+import requests
+from SmartApi import SmartConnect
+import streamlit as st
+
+# कॉन्फिग फाइल इम्पोर्ट
 from config import CONFIG
 
 # ==========================================
-# 👉 इथे (साधारण Line 15 ते 20 च्या आसपास) हे फंक्शन पेस्ट करा:
+# 1. Angel One Data Fetcher
 # ==========================================
 @st.cache_data(ttl=300)
 def load_angel_data():
@@ -33,7 +29,7 @@ def load_angel_data():
 
         historic_param = {
             "exchange": "NSE",
-            "symboltoken": "99926000",
+            "symboltoken": "99926000",  # Nifty 50 Index
             "interval": "FIVE_MINUTE",
             "fromdate": from_date,
             "todate": to_date
@@ -47,21 +43,24 @@ def load_angel_data():
     except Exception as e:
         st.error(f"Angel One एरर: {e}")
         return None
-# NLTK Lexicon
+
+# NLTK Lexicon Setup
 try:
     nltk.data.find('sentiment/vader_lexicon.zip')
 except LookupError:
     nltk.download('vader_lexicon', quiet=True)
 
-# १. युनिक नावाचा Risk Engine (ज्यामुळे जुना कॅश क्लॅश होणार नाही)
+# ==========================================
+# 2. Risk Engine
+# ==========================================
 class DynamicRiskEngine:
-    def _init_(self, rr_ratio=2.0):
+    def __init__(self, rr_ratio=2.0):
         self.rr_ratio = rr_ratio
 
     def get_trade_levels(self, price, atr, action):
         atr_val = 25.0 if (atr is None or atr <= 0 or np.isnan(atr)) else float(atr)
         sl_points = round(max(atr_val * 1.5, 20.0), 1)
-        tgt_points = round(sl_points * self.rr, 1)
+        tgt_points = round(sl_points * self.rr_ratio, 1)
 
         if action == "BUY_CE":
             sl = round(price - sl_points, 1)
@@ -80,7 +79,9 @@ class DynamicRiskEngine:
             "tgt_pts": tgt_points
         }
 
-# २. Feature Extraction
+# ==========================================
+# 3. Feature Extraction
+# ==========================================
 def extract_features(df):
     f_df = pd.DataFrame(index=df.index)
     f_df['returns'] = df['close'].pct_change()
@@ -102,9 +103,11 @@ def extract_features(df):
     f_df['atr'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1).rolling(14).mean()
     return f_df.replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
-# ३. Light & Fast ML AI Engine
+# ==========================================
+# 4. ML AI Engine (Softmax Classifier)
+# ==========================================
 class OptionAIEngineV2:
-    def _init_(self):
+    def __init__(self):
         self.weights = None
         self.bias = None
         self.mean = None
@@ -161,7 +164,9 @@ class OptionAIEngineV2:
         except Exception:
             return "HOLD", 0.0
 
-# ४. Excel रिपोर्ट तयार करणे
+# ==========================================
+# 5. Excel Report Generator
+# ==========================================
 def create_excel_report(trades_df, capital, filename="AI_Option_Report.xlsx"):
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -185,9 +190,19 @@ def create_excel_report(trades_df, capital, filename="AI_Option_Report.xlsx"):
     wb.save(filename)
     return filename
 
-# --- UI Layout ---
+# ==========================================
+# 6. Streamlit UI Layout
+# ==========================================
 st.set_page_config(page_title="AI Option Trading", page_icon="📈", layout="wide")
 st.title("🤖 Nifty 50 AI Option Trading & Backtest System")
+
+# API Status in Sidebar
+st.sidebar.header("🔌 API Status")
+angel_df = load_angel_data()
+if angel_df is not None and not angel_df.empty:
+    st.sidebar.success(f"Angel One Connected ({len(angel_df)} candles)")
+else:
+    st.sidebar.warning("Angel One Not Connected (Using Simulation Data)")
 
 st.sidebar.header("⚙️ Strategy Parameters")
 capital = st.sidebar.number_input("Starting Capital (₹)", value=100000, step=10000)
@@ -199,18 +214,24 @@ tab1, tab2, tab3 = st.tabs(["📊 Backtest Engine", "📰 Live News Sentiment", 
 
 with tab1:
     st.subheader("Historical 5-Min Strategy Backtest")
+    
+    use_live_data = st.checkbox("Angel One चा खरा डेटा वापरा (उपलब्ध असल्यास)", value=False)
+    
     if st.button("🚀 Run Backtest Now", type="primary"):
         with st.spinner("डेटा प्रोसेस आणि AI मॉडेल रन होत आहे..."):
-            np.random.seed(42)
-            prices = np.cumprod(1 + np.random.normal(0.0001, 0.0025, 1200)) * 24500
-            df = pd.DataFrame({
-                "datetime": pd.date_range("2026-06-01 09:15", periods=1200, freq="5min"),
-                "open": prices,
-                "high": prices * 1.002,
-                "low": prices * 0.998,
-                "close": prices,
-                "volume": np.random.randint(1000, 15000, 1200)
-            })
+            if use_live_data and angel_df is not None and len(angel_df) >= 200:
+                df = angel_df.copy().rename(columns={"timestamp": "datetime"})
+            else:
+                np.random.seed(42)
+                prices = np.cumprod(1 + np.random.normal(0.0001, 0.0025, 1200)) * 24500
+                df = pd.DataFrame({
+                    "datetime": pd.date_range("2026-06-01 09:15", periods=1200, freq="5min"),
+                    "open": prices,
+                    "high": prices * 1.002,
+                    "low": prices * 0.998,
+                    "close": prices,
+                    "volume": np.random.randint(1000, 15000, 1200)
+                })
 
             features = extract_features(df)
             split_idx = int(len(df) * 0.70)
@@ -220,8 +241,7 @@ with tab1:
             ai = OptionAIEngineV2()
             ai.train(train_df, train_feats)
 
-            # इथे थेट DynamicRiskEngine वापरला आहे
-            risk_mgr = DynamicRiskEngine()
+            risk_mgr = DynamicRiskEngine(rr_ratio=rr_ratio)
             test_df = df.iloc[split_idx:]
             trades = []
             in_trade = False
@@ -237,11 +257,15 @@ with tab1:
                     h, l = curr['high'], curr['low']
                     exit_p, res = None, None
                     if trade_type == "BUY_CE":
-                        if l <= sl_p: exit_p, res = sl_p, "SL_HIT"
-                        elif h >= tgt_p: exit_p, res = tgt_p, "TARGET_HIT"
+                        if l <= sl_p:
+                            exit_p, res = sl_p, "SL_HIT"
+                        elif h >= tgt_p:
+                            exit_p, res = tgt_p, "TARGET_HIT"
                     elif trade_type == "BUY_PE":
-                        if h >= sl_p: exit_p, res = sl_p, "SL_HIT"
-                        elif l <= tgt_p: exit_p, res = tgt_p, "TARGET_HIT"
+                        if h >= sl_p:
+                            exit_p, res = sl_p, "SL_HIT"
+                        elif l <= tgt_p:
+                            exit_p, res = tgt_p, "TARGET_HIT"
 
                     if exit_p:
                         pts = (exit_p - entry_p) if trade_type == "BUY_CE" else (entry_p - exit_p)
@@ -251,6 +275,7 @@ with tab1:
                             "Trade ID": f"TRD_{t_id:03d}",
                             "Action": trade_type,
                             "Entry Price": entry_p,
+                            "Exit Price": exit_p,
                             "Result": res,
                             "Points": round(pts, 2),
                             "Net P&L (₹)": pnl,
@@ -270,47 +295,30 @@ with tab1:
 
             st.session_state['trades_df'] = pd.DataFrame(trades)
             st.success("✅ बॅकटेस्ट यशस्वीरित्या पूर्ण झाले!")
-            # रिझल्ट्स स्क्रीनवर दाखवण्यासाठी:
-    if trades:
-        import pandas as pd
-        trades_df = pd.DataFrame(trades)
-        
-        st.markdown("---")
-        st.subheader("📊 बॅकटेस्ट निकाल (Results)")
-        
-        # १. महत्त्वाचे आकडे (Metrics)
-        total_pnl = trades_df['pnl'].sum() if 'pnl' in trades_df.columns else 0
-        win_trades = len(trades_df[trades_df['pnl'] > 0]) if 'pnl' in trades_df.columns else 0
-        loss_trades = len(trades_df[trades_df['pnl'] <= 0]) if 'pnl' in trades_df.columns else 0
-        
-        c1, c2, c3 = st.columns(3)
-        c1.metric("एकूण ट्रेड्स", len(trades_df))
-        c2.metric("नफा / तोटा (P&L)", f"₹{total_pnl:,.2f}")
-        c3.metric("Win / Loss", f"{win_trades} / {loss_trades}")
-        
-        # २. सर्व ट्रेड्सचा तक्ता (Table)
-        st.markdown("---")
-        st.write("📋 *घेतलेल्या ट्रेड्सची यादी:*")
-        st.dataframe(trades_df)
-    else:
-        st.warning("या कालावधीत अटी पूर्ण न झाल्यामुळे एकही ट्रेड झाला नाही.")
 
-    if 'trades_df' in st.session_state and not st.session_state['trades_df'].empty:
+    # रिझल्ट्स डिस्प्ले
+    if 'trades_df' in st.session_state:
         tdf = st.session_state['trades_df']
-        wins = tdf[tdf["Result"] == "TARGET_HIT"]
-        win_rate = (len(wins) / len(tdf)) * 100
-        total_pnl = tdf["Net P&L (₹)"].sum()
+        if not tdf.empty:
+            wins = tdf[tdf["Result"] == "TARGET_HIT"]
+            win_rate = (len(wins) / len(tdf)) * 100
+            total_pnl = tdf["Net P&L (₹)"].sum()
 
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total Trades", len(tdf))
-        col2.metric("Win Rate", f"{win_rate:.1f}%")
-        col3.metric("Net P&L (₹)", f"₹{total_pnl:,.2f}", delta=f"{total_pnl:,.2f}")
-        col4.metric("Ending Capital", f"₹{tdf['Capital Balance (₹)'].iloc[-1]:,.2f}")
+            st.markdown("---")
+            st.subheader("📊 बॅकटेस्ट निकाल (Results)")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Total Trades", len(tdf))
+            col2.metric("Win Rate", f"{win_rate:.1f}%")
+            col3.metric("Net P&L (₹)", f"₹{total_pnl:,.2f}", delta=f"{total_pnl:,.2f}")
+            col4.metric("Ending Capital", f"₹{tdf['Capital Balance (₹)'].iloc[-1]:,.2f}")
 
-        st.subheader("📈 Capital Growth (Equity Curve)")
-        st.line_chart(tdf.set_index("Trade ID")["Capital Balance (₹)"])
-        st.subheader("📋 Trade Logs")
-        st.dataframe(tdf, use_container_width=True)
+            st.subheader("📈 Capital Growth (Equity Curve)")
+            st.line_chart(tdf.set_index("Trade ID")["Capital Balance (₹)"])
+            
+            st.subheader("📋 Trade Logs")
+            st.dataframe(tdf, use_container_width=True)
+        else:
+            st.warning("या कालावधीत निकष पूर्ण न झाल्यामुळे एकही ट्रेड मिळाला नाही.")
 
 with tab2:
     st.subheader("Market News & Sentiment Radar")
@@ -318,7 +326,11 @@ with tab2:
         with st.spinner("ताज्या बातम्या वाचल्या जात आहेत..."):
             try:
                 headers = {"User-Agent": "Mozilla/5.0"}
-                res = requests.get("https://news.google.com/rss/search?q=Nifty+50+Stock+Market+India&hl=en-IN&gl=IN&ceid=IN:en", headers=headers, timeout=10)
+                res = requests.get(
+                    "https://news.google.com/rss/search?q=Nifty+50+Stock+Market+India&hl=en-IN&gl=IN&ceid=IN:en", 
+                    headers=headers, 
+                    timeout=10
+                )
                 feed = feedparser.parse(res.content)
                 sia = SentimentIntensityAnalyzer()
                 scores = [sia.polarity_scores(e.title)['compound'] for e in feed.entries[:8] if hasattr(e, 'title')]
@@ -342,12 +354,11 @@ with tab3:
     if 'trades_df' in st.session_state and not st.session_state['trades_df'].empty:
         fname = create_excel_report(st.session_state['trades_df'], capital)
         with open(fname, "rb") as f:
-            st.download_button("📥 Download Excel P&L Report", f, file_name=fname, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button(
+                "📥 Download Excel P&L Report", 
+                f, 
+                file_name=fname, 
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
     else:
         st.warning("आधी बॅकटेस्ट रन करा, त्यानंतर एक्सेल डाउनलोड करता येईल.")
-df = load_angel_data()
-
-if df is not None and not df.empty:
-    st.success(f"✅ Angel One कनेक्ट झाले! एकूण {len(df)} कँडल्स मिळाल्या. (शेवटची वेळ: {df['timestamp'].iloc[-1]})")
-else:
-    st.error("❌ Angel One कनेक्ट झालेले नाही किंवा डेटा मिळाला नाही.")
